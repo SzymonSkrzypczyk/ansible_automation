@@ -1,0 +1,109 @@
+- name: "Setup Python Environment"
+  hosts: localhost
+  connection: local
+  become: true
+  tasks: 
+    - name: "Install Python 3 ubuntu"
+      apt:
+        name: python3
+        state: present
+
+      when: ansible_distribution | lower == "ubuntu"
+    
+    - name: "Install Python 3 centos"
+      yum:
+        name: python3
+        state: present
+
+      when: ansible_distribution | lower == "centos"
+
+    - name: "Install pip ubuntu"
+      apt:
+        name: python3-pip
+        state: present
+      
+      when: ansible_distribution | lower == "ubuntu"
+      
+    - name: "Install pip centos"
+      yum: 
+        name: python3-pip
+        state: present
+      
+      when: ansible_distribution | lower == "centos"
+
+    - name: "Install venv ubuntu"
+      apt:
+        name: python3-venv
+        state: present
+      
+      when: ansible_distribution | lower == "ubuntu"
+      
+    - name: "Install venv centos"
+      yum: 
+        name: python3-venv
+        state: present
+      
+      when: ansible_distribution | lower == "centos"
+
+- name: "Setup python environment"
+  hosts: localhost
+  connection: local
+  become: true
+  vars:
+    # general level variable that should be overwritten with --extra-vars
+    directory: "{{ lookup('env', 'HOME') }}/uvicorn"
+  tasks:
+    - name: "Create a virtual environment"
+      command: 'python3 -m venv {{ directory }}/.venv'
+      args:
+        creates: '{{ directory }}/.venv'
+
+    - name: "Check if requirements.txt exists"
+      stat:
+        path: "{{ directory }}/requirements.txt"
+      register: requirements_file
+
+    - name: "Fail if requirements.txt is missing"
+      fail:
+        msg: "requirements.txt not found at {{ directory }}/requirements.txt"
+      when: not requirements_file.stat.exists
+
+    - name: "Install requirements and uvicorn"
+      shell: |
+        source {{ directory }}/.venv/bin/activate
+        python3 -m pip install --break-system-packages -r {{ directory }}/requirements.txt
+        python3 -m pip install --break-system-packages uvicorn
+      register: install_requirements
+      ignore_errors: true
+
+    - name: "Check if install was successful"
+      fail:
+        msg: "Failed to install requirements"
+      when: install_requirements.rc != 0
+
+- name: "Run uvicorn server"
+  hosts: localhost
+  connection: local
+  become: true
+  vars: 
+    # the same directory as above... <- to be changed
+    directory: "{{ lookup('env', 'HOME') }}/uvicorn"
+    # script containing uvicorn app
+    script_name: "main"
+    # FastAPI app inside the script
+    app_name: "app"
+    # port to run the server on
+    port: 8000
+    # host to run the server on
+    host: "0.0.0.0"
+  tasks:
+    - name: "Start uvicorn"
+      shell: |
+        bash -c "source {{ directory }}/.venv/bin/activate && uvicorn {{ script_name }}:{{ app_name }} --port {{ port }} --host {{ host }}"
+      register: uvicorn_start
+      ignore_errors: true
+
+    - name: "Check if uvicorn started successfully"
+      fail:
+        msg: "Failed to start uvicorn"
+      when: uvicorn_start.rc != 0
